@@ -1,46 +1,90 @@
+/*
+ * CSCE 30503-0001 Operating Systems
+ * Dylan Curtis 11/08/26
+ * Week 11-12 Assignment: Shell Assignment Version One
+ */
+
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
-#include <wait.h>
+#include <sys/wait.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 
-#define BSIZE 20
+#define BSIZE 100
 
-/***********************************************************************
- * This starter shell implements a simple shell that implements:
- * 
- * (1) An internal EXIT command that exits the shell.
- * (2) Executes a external program without any command line arguments
- * 
- ***********************************************************************/
-int main(int argc, char *argv[]){
+/* Track the currently running child process so SIGINT can interrupt it using kill(). */
+pid_t child = 0;
+
+/* Handle SIGINT (Ctrl+C).
+ * If an external command is running, send SIGINT to it.
+ * The shell itself continues running. */
+void handle_sigint(int sig) {
+    if (child > 0) {
+        kill(child, SIGINT);
+    }
+}
+
+int main(int argc, char *argv[]) {
     char buffer[BSIZE];
-    pid_t child;
     int status;
-    char *args[]={"",NULL};
 
-    while(1){
+    /* Parse commands into a NULL-terminated char *args[] array for execvp(). */
+    char *args[20];
+
+    /* Register a signal handler for SIGINT. */
+    signal(SIGINT, handle_sigint);
+
+    /* Continuously read input from the user. */
+    while (1) {
         printf("shell> ");
-        fgets(buffer,BSIZE-1,stdin);
-        buffer[(strlen(buffer)-1)]='\0';  //Remove NewLine
-        args[0]=buffer;
+        fgets(buffer, BSIZE, stdin);
 
-        //** Internal Command **
-        if(strcmp(buffer,"exit")==0){
+        /* Remove the newline character */
+        buffer[strcspn(buffer, "\n")] = '\0';
+
+        /* Parse command-line arguments into args[]. */
+        int i = 0;
+        args[i] = strtok(buffer, " ");
+
+        while (args[i] != NULL) {
+            i++;
+            args[i] = strtok(NULL, " ");
+        }
+
+        /* Ignore blank lines */
+        if (args[0] == NULL) {
+            continue;
+        }
+
+        /* Internal command: exit */
+        if (strcmp(args[0], "exit") == 0) {
             break;
         }
-        //** External Command **
-        child = fork();
-        if(child==0){
-            //*** Child Process ***
-            execvp(args[0],args);
-            exit(0);
-        }else{
-            //*** Parent Process **
-            waitpid(-1,&status,0);
+
+        /* Internal command: cd */
+        if (strcmp(args[0], "cd") == 0) {
+            if (args[1] != NULL) {
+                chdir(args[1]);
+            }
+            continue;
         }
 
+        /* Create a child process using fork(). */
+        child = fork();
+
+        if (child == 0) {
+            /* Execute external commands with arguments. */
+            execvp(args[0], args);
+            /* Only runs if execvp fails */
+            perror("execvp");
+            exit(1);
+        } else {
+            /* Parent waits for child to finish. */
+            waitpid(child, &status, 0);
+            child = 0;
+        }
     }
     return 0;
 }
